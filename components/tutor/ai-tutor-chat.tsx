@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Send, Sparkles, BookOpen, Lightbulb, Camera, Heart } from "lucide-react"
+import SimpleStressDetector from "./SimpleStressDetector"
 
 type Message = {
   id: string
@@ -39,7 +40,7 @@ export function AITutorChat() {
   const [isTyping, setIsTyping] = useState(false)
   const [stressLevel, setStressLevel] = useState("low")
 
-  const handleSend = () => {
+  const handleSend = async () => {
     if (!input.trim()) return
 
     const userMessage: Message = {
@@ -50,25 +51,88 @@ export function AITutorChat() {
     }
 
     setMessages((prev) => [...prev, userMessage])
+    const currentInput = input
     setInput("")
     setIsTyping(true)
 
-    // Simulate AI response
-    setTimeout(() => {
+    try {
+      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://127.0.0.1:5000"
+      
+      // Prepare conversation history for context
+      const conversationHistory = messages.map(msg => ({
+        role: msg.role,
+        content: msg.content
+      }))
+
+      const response = await fetch(`${backendUrl}/tutor/chat`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          message: currentInput,
+          stress_level: stressLevel,
+          conversation_history: conversationHistory
+        }),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || `HTTP ${response.status}`)
+      }
+
       const aiMessage: Message = {
         id: (Date.now() + 1).toString(),
         role: "assistant",
-        content:
-          "Great question! Let me break this down for you in a way that's easy to understand. [This is a simulated response - in production, this would be powered by an AI model that adapts to your learning style and current stress level.]",
+        content: data.response,
         timestamp: new Date(),
       }
+      
       setMessages((prev) => [...prev, aiMessage])
+    } catch (error) {
+      console.error("Tutor chat error:", error)
+      
+      // Fallback response on error
+      const errorMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        role: "assistant",
+        content: "I'm having trouble connecting right now. Please check your internet connection and try again. If the problem persists, you can try asking a simpler question or come back later.",
+        timestamp: new Date(),
+      }
+      
+      setMessages((prev) => [...prev, errorMessage])
+    } finally {
       setIsTyping(false)
-    }, 1500)
+    }
   }
 
   const handleSuggestedQuestion = (question: string) => {
     setInput(question)
+  }
+
+  // --- Stress detection handler ---
+  const handleStressDetected = async (score: number) => {
+    let level = "low"
+    if (score > 30 && score <= 60) level = "medium"
+    else if (score > 60) level = "high"
+    setStressLevel(level)
+
+    // Send emotion data to backend for analytics
+    try {
+      const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://127.0.0.1:5000"
+      await fetch(`${backendUrl}/emotion-log`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ 
+          stress_score: score,
+          timestamp: new Date().toISOString()
+        }),
+      })
+    } catch (error) {
+      console.error("Failed to log emotion data:", error)
+      // Don't show error to user, just log it
+    }
   }
 
   return (
@@ -83,8 +147,8 @@ export function AITutorChat() {
                 <Camera className="h-4 w-4 text-chart-3" />
               </div>
               <div>
-                <p className="text-sm font-medium">Emotion Detection Active</p>
-                <p className="text-xs text-muted-foreground">Adapting explanations to your stress level</p>
+                <p className="text-sm font-medium">Stress Monitoring Active</p>
+                <p className="text-xs text-muted-foreground">Simulated stress detection for AI adaptation</p>
               </div>
             </div>
             <Badge variant="outline" className="border-chart-3 text-chart-3">
@@ -93,6 +157,9 @@ export function AITutorChat() {
             </Badge>
           </div>
         </div>
+
+        {/* Stress detection disabled for now */}
+        <SimpleStressDetector onStressDetected={handleStressDetected} hidden={true} />
 
         {/* Messages */}
         <ScrollArea className="flex-1 p-4">

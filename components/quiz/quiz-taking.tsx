@@ -9,6 +9,8 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Label } from "@/components/ui/label"
 import { Camera, Heart, AlertCircle } from "lucide-react"
 import { useRouter } from "next/navigation"
+import SimpleStressDetector from "@/components/tutor/SimpleStressDetector.jsx"
+import { BreathingBreak } from "@/components/wellness/breathing-break"
 
 type GeneratedQuestion = {
   question: string
@@ -28,6 +30,8 @@ export function QuizTaking({ quizId }: { quizId: string }) {
   const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://127.0.0.1:5000"
   const [answers, setAnswers] = useState<{ isCorrect: boolean }[]>([])
   const [stressHistory, setStressHistory] = useState<number[]>([])
+  const [breathingOpen, setBreathingOpen] = useState(false)
+  const [focusMode, setFocusMode] = useState(false)
 
 	const progress = useMemo(() => {
     const total = Math.max(displayedQuestions.length, 1)
@@ -64,6 +68,25 @@ export function QuizTaking({ quizId }: { quizId: string }) {
     setQuestionPool(fallback)
     setDisplayedQuestions(fallback)
   }, [])
+
+  // Broadcast focus mode to header
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    const evt = new CustomEvent("toggle-focus-mode", { detail: focusMode })
+    window.dispatchEvent(evt)
+    return () => {
+      const offEvt = new CustomEvent("toggle-focus-mode", { detail: false })
+      window.dispatchEvent(offEvt)
+    }
+  }, [focusMode])
+
+  // Map detector score to level and trigger mindful prompt on spikes
+  const handleStressDetected = (score: number) => {
+    const level = score > 60 ? "high" : score > 30 ? "medium" : "low"
+    setStressLevel(level)
+    setStressHistory((prev) => [...prev, Math.round(score)])
+    if (score >= 75) setBreathingOpen(true)
+  }
 
   const handleNext = async () => {
     const current = displayedQuestions[currentQuestion]
@@ -128,6 +151,14 @@ export function QuizTaking({ quizId }: { quizId: string }) {
 
 	return (
 		<div className="mx-auto max-w-4xl">
+      {/* Optional Focus Mode toggle */}
+      <div className="mb-3 flex items-center justify-between text-xs text-muted-foreground">
+        <div className="flex items-center gap-2">
+          <input id="focusMode" type="checkbox" checked={focusMode} onChange={(e) => setFocusMode(e.target.checked)} />
+          <label htmlFor="focusMode">Focus Mode (hide header distractions)</label>
+        </div>
+      </div>
+
 			{/* Stress Detection Banner */}
 			<Card className="mb-6 border-chart-3/50 bg-chart-3/10 p-4 backdrop-blur-sm">
 				<div className="flex items-center justify-between">
@@ -136,10 +167,8 @@ export function QuizTaking({ quizId }: { quizId: string }) {
 							<Camera className="h-5 w-5 text-chart-3" />
 						</div>
 						<div>
-							<p className="text-sm font-medium">Stress Detection Active</p>
-							<p className="text-xs text-muted-foreground">
-								Current level: {stressLevel}
-							</p>
+							<p className="text-sm font-medium">Stress Monitoring Active</p>
+							<p className="text-xs text-muted-foreground">Simulated detection - Current level: {stressLevel}</p>
 						</div>
 					</div>
 					<Badge
@@ -151,6 +180,9 @@ export function QuizTaking({ quizId }: { quizId: string }) {
 					</Badge>
 				</div>
 			</Card>
+
+      {/* Stress detection disabled for now */}
+      <SimpleStressDetector onStressDetected={handleStressDetected} hidden={true} />
 
 			{/* Quiz Progress */}
 			<div className="mb-6">
@@ -220,11 +252,10 @@ export function QuizTaking({ quizId }: { quizId: string }) {
 									High stress detected
 								</p>
 								<p className="text-xs text-muted-foreground">
-									Take a deep breath. Would you like to take a short
-									break or get a hint?
+										Take a deep breath. Would you like to take a short break or get a hint?
 								</p>
 								<div className="mt-3 flex gap-2">
-									<Button size="sm" variant="outline">
+										<Button size="sm" variant="outline" onClick={() => setBreathingOpen(true)}>
 										Take Break
 									</Button>
 									<Button size="sm" variant="outline">
@@ -255,6 +286,9 @@ export function QuizTaking({ quizId }: { quizId: string }) {
 					</Button>
 				</div>
 			</Card>
+
+      {/* Breathing Break Modal */}
+      <BreathingBreak open={breathingOpen} onClose={() => setBreathingOpen(false)} durationSec={60} />
 		</div>
 	)
 }

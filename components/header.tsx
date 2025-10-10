@@ -3,15 +3,26 @@
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Sparkles, Star } from "lucide-react"
-import { useState } from "react"
+import { useEffect, useState } from "react"
 
 export function Header() {
   const [isWiggling, setIsWiggling] = useState(false)
+  const [focusMode, setFocusMode] = useState(false)
 
   const handleLogoClick = () => {
     setIsWiggling(true)
     setTimeout(() => setIsWiggling(false), 1000)
   }
+
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    const handler = (e: Event) => {
+      const val = (e as CustomEvent).detail as boolean
+      setFocusMode(!!val)
+    }
+    window.addEventListener("toggle-focus-mode", handler as EventListener)
+    return () => window.removeEventListener("toggle-focus-mode", handler as EventListener)
+  }, [])
 
   return (
     <header className="fixed top-0 left-0 right-0 z-50 border-b-4 border-primary/20 bg-white/90 backdrop-blur-lg shadow-lg">
@@ -28,7 +39,7 @@ export function Header() {
             </span>
           </Link>
 
-          <nav className="hidden items-center gap-6 md:flex">
+          <nav className={`hidden items-center gap-6 md:flex ${focusMode ? "opacity-20 pointer-events-none" : ""}`}>
             <Link
               href="#features"
               className="text-lg font-medium text-foreground hover:text-primary transition-colors hover:scale-110 transform"
@@ -49,7 +60,7 @@ export function Header() {
             </Link>
           </nav>
 
-          <div className="flex items-center gap-3">
+          <div className={`flex items-center gap-3 ${focusMode ? "opacity-60" : ""}`}>
             <Button
               size="lg"
               className="gap-2 text-lg font-semibold shadow-lg hover:shadow-xl hover:scale-105 transition-all bg-gradient-to-r from-primary to-secondary"

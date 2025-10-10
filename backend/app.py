@@ -14,7 +14,6 @@ except Exception:
 app = Flask(__name__)
 CORS(app)
 
-POLLINATION_API_KEY = os.getenv("POLLINATION_API_KEY", "")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "google/gemini-1.5-flash-8b")
 
@@ -156,34 +155,14 @@ def _fallback_generate_mcqs(text: str, num_questions: int, subject: str | None, 
     return [mk_q(i) for i in range(max(1, num_questions))]
 
 def generate_quiz(text, num_questions=10, subject: str | None = None, topics: str | None = None):
-    # Prefer OpenRouter/Gemini if configured, else fallback to legacy Pollination API
+    # Use OpenRouter/Gemini if configured, else fallback to simple generator
     if OPENROUTER_API_KEY:
         questions = generate_quiz_via_openrouter(text, num_questions)
         if questions:
             return questions
-    if not POLLINATION_API_KEY:
-        return []
-    prompt = build_quiz_prompt(text, num_questions)
-    headers = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {POLLINATION_API_KEY}",
-    }
-    payload = {"model": "gemini-pro", "prompt": prompt, "max_tokens": 1800}
-    try:
-        response = requests.post(
-            "https://api.pollination.ai/v1/generate",
-            headers=headers,
-            json=payload,
-            timeout=60,
-        )
-        result = response.json().get("output", "")
-        parsed = parse_questions(result)
-        if not parsed:
-            return _fallback_generate_mcqs(text, num_questions, subject, topics)
-        return parsed
-    except Exception as e:
-        print("Error calling Pollination API:", e)
-        return _fallback_generate_mcqs(text, num_questions, subject, topics)
+    
+    # Fallback to simple question generator
+    return _fallback_generate_mcqs(text, num_questions, subject, topics)
 
 # --- Route: Upload file + generate quiz ---
 @app.route("/upload", methods=["POST", "GET", "OPTIONS"])
@@ -233,39 +212,151 @@ def submit_quiz():
     feedback = None
     if OPENROUTER_API_KEY:
         feedback = generate_feedback_via_openrouter(accuracy, avg_stress)
-    if feedback is None and POLLINATION_API_KEY:
-        # Fallback to Pollination
-        feedback_prompt = (
-            f"A student scored {accuracy}% with average stress level {avg_stress}. "
-            "Suggest what topics to revise and how to improve."
-        )
-        headers = {
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {POLLINATION_API_KEY}",
-        }
-        payload = {
-            "model": "gemini-pro",
-            "prompt": feedback_prompt,
-            "max_tokens": 500,
-        }
-        try:
-            response = requests.post(
-                "https://api.pollination.ai/v1/generate",
-                headers=headers,
-                json=payload,
-                timeout=60,
-            )
-            feedback = response.json().get("output", None)
-        except Exception as e:
-            print("Error generating feedback:", e)
-            feedback = None
+    
     if feedback is None:
-        feedback = "Could not generate feedback at this time."
+        # Simple fallback feedback
+        if accuracy >= 90:
+            feedback = "Excellent work! You've mastered this material. Consider exploring more advanced topics."
+        elif accuracy >= 70:
+            feedback = "Good job! You're on the right track. Review the incorrect answers and practice similar problems."
+        elif accuracy >= 50:
+            feedback = "Keep practicing! Focus on understanding the fundamental concepts before moving to advanced topics."
+        else:
+            feedback = "Don't worry, learning takes time! Review the material thoroughly and try again. Consider breaking down complex topics into smaller parts."
 
     return jsonify({
         "score": accuracy,
         "avg_stress": avg_stress,
         "feedback": feedback
+    })
+
+# --- Route: AI Tutor Chat ---
+@app.route("/tutor/chat", methods=["POST", "GET", "OPTIONS"])
+def tutor_chat():
+    if request.method != "POST":
+        return jsonify({
+            "endpoint": "/tutor/chat",
+            "usage": "POST application/json with fields: message (string), stress_level (string), conversation_history (array)",
+            "status": "ready"
+        })
+    
+    data = request.get_json()
+    message = data.get("message", "").strip()
+    stress_level = data.get("stress_level", "low")  # low, medium, high
+    conversation_history = data.get("conversation_history", [])
+    
+    if not message:
+        return jsonify({"error": "No message provided"}), 400
+    
+    # Build context-aware system prompt based on stress level
+    stress_context = {
+        "low": "The student is calm and focused. Provide detailed explanations and encourage deeper exploration.",
+        "medium": "The student shows some stress. Keep explanations clear and concise, offer encouragement.",
+        "high": "The student is stressed. Provide simple, reassuring explanations. Focus on building confidence and suggest breaks if needed."
+    }
+    
+    system_prompt = f"""You are an empathetic AI tutor that adapts to student stress levels. 
+Current stress level: {stress_level}
+{stress_context.get(stress_level, stress_context["low"])}
+
+Guidelines:
+- Be encouraging and supportive
+- Adapt explanation complexity to stress level
+- If stress is high, suggest taking breaks
+- Use examples and analogies to clarify concepts
+- Ask follow-up questions to check understanding
+- Keep responses conversational and helpful"""
+    
+    # Build conversation context
+    messages = [{"role": "system", "content": system_prompt}]
+    
+    # Add recent conversation history (last 6 messages to avoid token limits)
+    recent_history = conversation_history[-6:] if conversation_history else []
+    for msg in recent_history:
+        if isinstance(msg, dict) and "role" in msg and "content" in msg:
+            messages.append({"role": msg["role"], "content": msg["content"]})
+    
+    # Add current message
+    messages.append({"role": "user", "content": message})
+    
+    # Generate response using OpenRouter
+    if not OPENROUTER_API_KEY:
+        return jsonify({
+            "response": "I'm sorry, the AI tutor service is currently unavailable. Please try again later.",
+            "error": "No API key configured"
+        }), 503
+    
+    url = "https://openrouter.ai/api/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+        "Content-Type": "application/json",
+    }
+    
+    payload = {
+        "model": GEMINI_MODEL,
+        "messages": messages,
+        "max_tokens": 800,
+        "temperature": 0.7,
+    }
+    
+    try:
+        response = requests.post(url, headers=headers, json=payload, timeout=30)
+        data = response.json()
+        
+        if response.status_code != 200:
+            return jsonify({
+                "response": "I'm having trouble connecting right now. Please try again in a moment.",
+                "error": f"API error: {response.status_code}"
+            }), 503
+        
+        ai_response = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+        
+        if not ai_response:
+            return jsonify({
+                "response": "I didn't quite understand that. Could you rephrase your question?",
+                "error": "Empty response from AI"
+            }), 503
+        
+        return jsonify({
+            "response": ai_response,
+            "stress_level": stress_level,
+            "timestamp": data.get("created", None)
+        })
+        
+    except requests.exceptions.Timeout:
+        return jsonify({
+            "response": "I'm taking a bit longer to respond. Please wait a moment and try again.",
+            "error": "Request timeout"
+        }), 503
+    except Exception as e:
+        print("Tutor chat error:", e)
+        return jsonify({
+            "response": "I'm experiencing some technical difficulties. Please try again later.",
+            "error": str(e)
+        }), 500
+
+# --- Route: Emotion logging for analytics ---
+@app.route("/emotion-log", methods=["POST", "GET", "OPTIONS"])
+def emotion_log():
+    if request.method != "POST":
+        return jsonify({
+            "endpoint": "/emotion-log",
+            "usage": "POST application/json with fields: stress_score (number), timestamp (optional)",
+            "status": "ready"
+        })
+    
+    data = request.get_json()
+    stress_score = data.get("stress_score", 0)
+    timestamp = data.get("timestamp")
+    
+    # In a real app, you'd store this in a database
+    # For now, just acknowledge receipt
+    print(f"Emotion logged: stress_score={stress_score}, timestamp={timestamp}")
+    
+    return jsonify({
+        "status": "logged",
+        "stress_score": stress_score,
+        "timestamp": timestamp
     })
 
 if __name__ == "__main__":
