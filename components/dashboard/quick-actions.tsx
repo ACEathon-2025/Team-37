@@ -1,21 +1,28 @@
 import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
-import { FileQuestion, MessageSquare, Calendar, Upload, ArrowRight } from "lucide-react"
+import { FileQuestion, MessageSquare, Calendar, Upload, ArrowRight, Clock } from "lucide-react"
 
 const actions = [
+  {
+    icon: Clock,
+    title: "Pomodoro Timer",
+    description: "Focus with timed work sessions",
+    href: "/dashboard/pomodoro",
+    color: "primary",
+  },
   {
     icon: FileQuestion,
     title: "Take a Quiz",
     description: "Test your knowledge with adaptive quizzes",
     href: "/dashboard/quiz",
-    color: "primary",
+    color: "accent",
   },
   {
     icon: MessageSquare,
     title: "Chat with AI Tutor",
     description: "Get instant help with any topic",
     href: "/dashboard/tutor",
-    color: "accent",
+    color: "chart-1",
   },
   {
     icon: Calendar,
@@ -37,7 +44,7 @@ export function QuickActions() {
   return (
     <Card className="border-border/50 bg-card/50 p-6 backdrop-blur-sm">
       <h2 className="mb-4 text-xl font-semibold">Quick Actions</h2>
-      <div className="grid gap-4 sm:grid-cols-2">
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {actions.map((action, index) => {
           const Icon = action.icon
           return (

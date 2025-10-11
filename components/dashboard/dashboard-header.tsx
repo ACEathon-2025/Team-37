@@ -55,6 +55,12 @@ export function DashboardHeader() {
               Achievements
             </Link>
             <Link
+              href="/dashboard/pomodoro"
+              className="text-sm text-muted-foreground transition-colors hover:text-foreground"
+            >
+              Pomodoro
+            </Link>
+            <Link
               href="/dashboard/analytics"
               className="text-sm text-muted-foreground transition-colors hover:text-foreground"
             >
