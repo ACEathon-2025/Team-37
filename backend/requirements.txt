@@ -2,4 +2,8 @@ flask
 flask-cors
 PyPDF2
 python-docx
+pdf2image
+pytesseract
 requests
+python-dotenv
+openai
